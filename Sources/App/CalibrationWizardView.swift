@@ -42,13 +42,18 @@ struct CalibrationWizardView: View {
                 stepBlock(step: "第 1 步 / 共 2 步",
                           title: "按 Shift 切到【中】,让中/英小窗弹出后点按钮抓取:",
                           action: "抓取【中】样本") {
-                    capture { zhSig = $0; zhPreview = preview; phase = .captureEn; preview = nil; hint = "" }
+                    capture("中") { zhSig = $0; zhPreview = preview; phase = .captureEn; preview = nil; hint = "" }
                 }
             case .captureEn:
                 stepBlock(step: "第 2 步 / 共 2 步",
                           title: "再按 Shift 切到【英】,点按钮抓取:",
                           action: "抓取【英】样本") {
-                    capture { enSig = $0; enPreview = preview; phase = .done; preview = nil; hint = "" }
+                    capture("英") {
+                        enSig = $0; enPreview = preview; phase = .done; preview = nil; hint = ""
+                        if let z = zhSig, let e = enSig {
+                            Log.app("校准 中/英签名距离=\(String(format: "%.3f", Fingerprint.distance(z, e)))(>0.2 才算可区分;接近 0 = 两张一样)")
+                        }
+                    }
                 }
             case .done:
                 VStack(alignment: .leading, spacing: 8) {
@@ -102,16 +107,15 @@ struct CalibrationWizardView: View {
         }
     }
 
-    /// 抓取一帧:校验当前活跃输入源==目标 → 在约 1 秒内反复定位+截图,
-    /// 直到拿到"非空白"的一帧(HUD 只显示约 1 秒且窗号每次都变,首帧常未画好/已消失)。
-    private func capture(_ store: ([Double]) -> Void) {
+    /// 抓取一帧:校验当前活跃输入源==目标 → 在约 1 秒内反复定位+截图,直到拿到"非空白"的一帧。
+    /// (HUD 只显示约 1 秒且窗号可能复用/残留,故重试并拒绝空白帧。)
+    private func capture(_ label: String, _ store: ([Double]) -> Void) {
         let srcID = IMEResolver.currentInputSourceID()
         guard let r = IMEResolver.resolve(), r.sourceID == sourceID else {
             hint = "当前活跃输入法不是 \(displayName)。实际读到:\(srcID.isEmpty ? "(空)" : srcID)。"
                  + "请点上面输入框、在框内切到 \(displayName) 再抓取。"
             return
         }
-        // 重试 ~1 秒:每 80ms 定位+截图一次,拿到非空白帧即采用。
         for _ in 0..<12 {
             if let win = HUDLocator.findOnScreen(pid: r.pid),
                let img = ScreenCapture.captureWindow(win) {
@@ -120,6 +124,7 @@ struct CalibrationWizardView: View {
                     preview = NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
                     hint = ""
                     store(sig)
+                    Log.app("校准[\(label)] 已抓取(窗#\(win))")
                     return
                 }
             }
