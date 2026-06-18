@@ -1,5 +1,11 @@
+import Carbon
 import CoreGraphics
 import Foundation
+
+public extension Notification.Name {
+    /// 中/英 或 输入法名 变化时广播,供菜单栏即时刷新(取代轮询)。
+    static let imemoryStateChanged = Notification.Name("imemoryStateChanged")
+}
 
 /// 持续监视当前输入法的 HUD 并维护中/英模式状态。
 /// 每当检测到模式变化时触发 `onChange` 回调。冷启动时 `current` 为 nil,
@@ -14,8 +20,9 @@ public final class StateTracker {
     public var onCaptureStuck: (() -> Void)?
 
     private let store: TemplateStore
-    private var running = false
-    private let pollMicros: UInt32 = 120_000
+    private let shiftMonitor = ShiftMonitor()
+    private var suppressShift = false   // 合成 Shift 期间为真,屏蔽 ShiftMonitor
+    private var imeSourceObserver: NSObjectProtocol?
     private var lastNote: String?   // 上次"为何没出状态"的原因,变化时才记日志,避免刷屏
     private var lastIMEKey: String? // 上次解析到的输入法 key,用于检测输入法被切换
     private let watchdog = CaptureWatchdog()  // 捕获失效看门狗
@@ -36,6 +43,7 @@ public final class StateTracker {
             if current != nil {
                 current = nil
                 Log.track("输入法切到 \(r.displayName) → 中/英重置为未知(待读取)")
+                NotificationCenter.default.post(name: .imemoryStateChanged, object: nil)
             }
         }
         let appearance = Appearance.current()
@@ -77,28 +85,62 @@ public final class StateTracker {
         if current != mode {
             current = mode; onChange?(mode)
             Log.track("状态变化 → \(mode.rawValue)(\(currentIMEName ?? "?"))")
+            NotificationCenter.default.post(name: .imemoryStateChanged, object: nil)
         }
     }
 
-    /// 在后台线程上运行监视循环,直到调用 `stop()` 为止。
+    /// 启动事件驱动:Shift 单击 → 采样突发;输入法切换通知 → 状态置未知。
     public func start() {
-        guard !running else { return }
-        running = true
-        Thread.detachNewThread { [weak self] in
-            while self?.running == true {
-                _ = self?.sampleOnce()
-                usleep(self?.pollMicros ?? 120_000)
-            }
+        shiftMonitor.isSuppressed = { [weak self] in self?.suppressShift ?? false }
+        shiftMonitor.onShiftTap = { [weak self] in
+            DispatchQueue.global().async { self?.sampleBurst() }
+        }
+        shiftMonitor.start()
+        imeSourceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil, queue: .main) { [weak self] _ in self?.imeSourceChanged() }
+    }
+
+    public func stop() {
+        shiftMonitor.stop()
+        if let o = imeSourceObserver { DistributedNotificationCenter.default().removeObserver(o) }
+        imeSourceObserver = nil
+    }
+
+    /// 一次采样突发:~400ms 内最多读 5 次,拿到一帧成功识别即停(HUD 渲染/淡出有时差)。
+    public func sampleBurst() {
+        for _ in 0..<5 {
+            if sampleOnce() != nil { return }
+            usleep(80_000)
         }
     }
 
-    public func stop() { running = false }
+    private func imeSourceChanged() {
+        if current != nil || currentIMEName != nil {
+            current = nil
+            Log.track("输入法切换 → 中/英重置为未知(待读取)")
+            NotificationCenter.default.post(name: .imemoryStateChanged, object: nil)
+        }
+        lastIMEKey = nil
+    }
+
+    /// 冷启动锚定:不改变当前态地定出初始中/英(读不到则净零合成两次 Shift,中间读)。
+    /// 合成期间置 suppress,避免被 ShiftMonitor 误当用户手势。
+    public func anchorColdStart() {
+        if sampleOnce() != nil { return }
+        suppressShift = true
+        defer { suppressShift = false }
+        Switcher.postShiftToggle(); usleep(240_000); _ = sampleOnce()
+        Switcher.postShiftToggle(); usleep(240_000); _ = sampleOnce()
+    }
 
     /// 将输入法切换到 `target` 模式。通过 sampleOnce 读回确认,最多尝试 `maxAttempts` 次切换。
     /// 若已处于目标模式则直接返回 true,不做任何操作。
     @discardableResult
     public func setMode(_ target: IMEMode, maxAttempts: Int = 2) -> Bool {
         if current == target { return true }
+        suppressShift = true
+        defer { suppressShift = false }
         Log.track("请求切换 → \(target.rawValue)(当前 \(current?.rawValue ?? "未知"))")
         for i in 0..<maxAttempts {
             Switcher.postShiftToggle()
