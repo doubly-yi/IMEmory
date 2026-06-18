@@ -13,14 +13,14 @@ let args = Array(CommandLine.arguments.dropFirst())
 switch args.first {
 case "resolve":
     if let r = IMEResolver.resolve() {
-        print("IME=\(r.def.displayName) key=\(r.def.key) pid=\(r.pid) appearance=\(Appearance.current().rawValue)")
+        print("IME=\(r.displayName) source=\(r.sourceID) pid=\(r.pid) appearance=\(Appearance.current().rawValue)")
     } else {
         print("当前不是已知中文输入法,或进程未找到。id=\(IMEResolver.currentInputSourceID())")
     }
 
 case "locate":
     guard let r = IMEResolver.resolve() else { print("当前不是已知输入法或进程未找到"); break }
-    if let w = HUDLocator.findOnScreen(pid: r.pid, def: r.def) { print("HUD window = \(w)") }
+    if let w = HUDLocator.findOnScreen(pid: r.pid) { print("HUD window = \(w)") }
     else { print("当前无 HUD 在屏(切一次中英再试)") }
 
 case "calibrate":
@@ -29,13 +29,13 @@ case "calibrate":
           let r = IMEResolver.resolve() else { print("用法: calibrate <zh.png> <en.png>"); break }
     let store = TemplateStore.defaultStore()
     try store.save(zh: Fingerprint.signature(zhImg), en: Fingerprint.signature(enImg),
-                   for: r.def, appearance: Appearance.current())
-    print("✅ 已为 \(r.def.displayName)/\(Appearance.current().rawValue) 建模板")
+                   forSource: r.sourceID, appearance: Appearance.current())
+    print("✅ 已为 \(r.displayName)/\(Appearance.current().rawValue) 建模板")
 
 case "classify-file":
     // ./imemory-cli classify-file <png>  — 使用当前输入法模板对一张图进行分类
     guard args.count >= 2, let img = loadImage(args[1]), let r = IMEResolver.resolve(),
-          let t = TemplateStore.defaultStore().load(for: r.def, appearance: Appearance.current())
+          let t = TemplateStore.defaultStore().load(forSource: r.sourceID, appearance: Appearance.current())
     else { print("需先 calibrate"); break }
     print(Classifier(zh: t.zh, en: t.en).classify(img))
 
