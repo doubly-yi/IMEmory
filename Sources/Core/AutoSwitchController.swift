@@ -9,6 +9,10 @@ public final class AutoSwitchController {
     private let store: AppMemoryStore
     private var currentApp: String?
     private var restoreGeneration = 0          // 自增以取消"过时"的待恢复(切到别的 App 时)
+    private let focusObserver = FocusObserver()
+    private enum Pending { case restore(IMEMode), learn }
+    private var pending: Pending?
+    private var pendingPid: pid_t?
     public var onEvent: ((String) -> Void)?   // 可读日志行,供 daemon 使用
     /// 暂停开关:为 false 时不自动切换、不在切换应用时写记忆,但 tracker 继续采样(图标保持实时)。
     public var switchingEnabled = true
@@ -24,99 +28,87 @@ public final class AutoSwitchController {
     }
 
     public func start() {
-        // 用户在同一应用内切换时,实时更新该应用的记录。
+        // 观测到切换时记录,归属到"当前键盘焦点所属 App"(Spotlight 等覆盖层正确归属)。
         tracker.onChange = { [weak self] mode in
-            guard let self, self.switchingEnabled, let app = self.currentApp else { return }
+            guard let self, self.switchingEnabled else { return }
+            guard let app = FocusProbe.focusedApp()?.bundleID ?? self.currentApp,
+                  app != self.ownBundleID else { return }
             self.store.record(bundleId: app, mode: mode)
             self.onEvent?("记录 \(app) = \(mode.rawValue)")
         }
         tracker.start()
 
+        // 普通 App 切换:NSWorkspace 事件 → 重新指向 FocusObserver + 处理上下文。
         monitor.onActivate = { [weak self] bundleId, name in
-            self?.handleActivate(bundleId: bundleId, name: name)
+            let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.processIdentifier
+            if let pid { self?.focusObserver.observe(pid: pid) }
+            self?.handleContext(bundleId: bundleId, name: name, pid: pid)
         }
         monitor.start()
 
-        // 用当前前台应用初始化 currentApp。
-        if let f = AppMonitor.frontmost() { currentApp = f.bundleId }
+        // 焦点变化(含 Spotlight 覆盖层进出、App 内落入文本框):事件驱动。
+        focusObserver.onFocusChanged = { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { self.handleFocusChanged() }
+        }
+        if let f = AppMonitor.frontmost() {
+            currentApp = f.bundleId
+            if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: f.bundleId).first?.processIdentifier {
+                focusObserver.observe(pid: pid)
+            }
+        }
     }
 
-    public func stop() { monitor.stop(); tracker.stop() }
+    public func stop() { monitor.stop(); tracker.stop(); focusObserver.stop() }
 
-    private func handleActivate(bundleId: String, name: String) {
+    /// 进入一个新上下文(App 或覆盖层)。决定恢复/学习,并立即试着完成(可能已在输入框)。
+    private func handleContext(bundleId: String, name: String, pid: pid_t?) {
         guard switchingEnabled else { currentApp = bundleId; return }
+        guard bundleId != currentApp else { return }
+        currentApp = bundleId
+        restoreGeneration += 1
+        pending = nil
+        pendingPid = pid
+        if let pid { FocusProbe.enableAccessibility(pid: pid) }
         let outcome = SwitchDecision.onActivate(
             newApp: bundleId,
             currentMode: tracker.current,
             savedModeForNewApp: store.mode(for: bundleId),
             newAppExcluded: store.isExcluded(bundleId))
-
-        // 不再"离开时记录":记录只由 tracker.onChange(真正观测到切换)负责,
-        // 避免把上一个 App 残留的状态错记给当前 App。
-        currentApp = bundleId
-
-        // 每次激活都自增代号,自动取消上一个 App 还没完成的待恢复/待学习。
-        restoreGeneration += 1
         if let target = outcome.switchTo {
-            // 取目标 App 的 pid,用于提示 Electron 类 App 立刻启用辅助功能树。
-            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            scheduleRestore(target: target, app: name, pid: pid, generation: restoreGeneration)
+            pending = .restore(target)
+            onEvent?("进入 \(name) → 待文本焦点恢复为 \(target.rawValue)")
         } else if store.mode(for: bundleId) == nil, !store.isExcluded(bundleId), bundleId != ownBundleID {
-            // 尚无记录的 App:等它真正有文本焦点后,把当前全局中/英学习为它的初始状态。
-            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            scheduleLearn(app: name, bundleId: bundleId, pid: pid, generation: restoreGeneration)
+            pending = .learn
+            onEvent?("进入 \(name)(无记录)→ 待文本焦点学习当前状态")
+        }
+        tryCompletePending()
+    }
+
+    /// 焦点变化回调:属主变了 → 当作进入新上下文;属主没变 → 推进待办(等到文本焦点)。
+    private func handleFocusChanged() {
+        if let owner = FocusProbe.focusedApp(), owner.bundleID != currentApp {
+            handleContext(bundleId: owner.bundleID, name: owner.name, pid: owner.pid)
+        } else {
+            tryCompletePending()
         }
     }
 
-    /// 进入"尚无记录"的 App:等它真正获得文本焦点后,把当前全局中/英记为它的初始状态(学习一次)。
-    /// 文本焦点闸门确保只给真正能输入的上下文记录,不给设置/文件树等无输入框上下文误记
-    /// ——那正是当年移除"离开即记录"的根因。
-    private func scheduleLearn(app: String, bundleId: String, pid: pid_t?, generation: Int) {
-        onEvent?("进入 \(app)(无记录)→ 待文本焦点后学习当前状态")
-        if let pid { FocusProbe.enableAccessibility(pid: pid) }
-        DispatchQueue.global().async { [weak self] in
-            guard let self else { return }
-            let deadline = Date().addingTimeInterval(60.0)
-            while Date() < deadline {
-                if self.restoreGeneration != generation { return }   // 切走了,静默取消
-                if FocusProbe.hasTextFocus(appPid: pid) {
-                    // 等待期间用户可能已手动切换并被 onChange 记录;仅在仍无记录时才学习,避免覆盖。
-                    if self.store.mode(for: bundleId) == nil, let mode = self.tracker.current {
-                        self.store.record(bundleId: bundleId, mode: mode)
-                        self.onEvent?("学习 \(app) = \(mode.rawValue)")
-                    }
-                    return
-                }
-                usleep(200_000)
+    /// 若有待办且当前已是文本焦点,则完成(恢复或学习)。无文本焦点则留待下次焦点事件。
+    private func tryCompletePending() {
+        guard let p = pending, let app = currentApp else { return }
+        guard FocusProbe.hasTextFocus(appPid: pendingPid) else { return }
+        switch p {
+        case .restore(let target):
+            let ok = tracker.setMode(target)
+            onEvent?(ok ? "✓ 已恢复 \(app) 为 \(target.rawValue)"
+                        : "✗ 恢复 \(app) 失败(有焦点但没读到小窗)")
+        case .learn:
+            if store.mode(for: app) == nil, let mode = tracker.current {
+                store.record(bundleId: app, mode: mode)
+                onEvent?("学习 \(app) = \(mode.rawValue)")
             }
         }
-    }
-
-    /// 等到目标 App 真正有文本焦点了再合成 Shift 恢复;若中途切到别的 App 则放弃。
-    /// 这样解决"切过去时还没点进输入框 → 恢复失败、状态停在上一个 App"的竞态。
-    private func scheduleRestore(target: IMEMode, app: String, pid: pid_t?, generation: Int) {
-        onEvent?("进入 \(app) → 待文本焦点后恢复为 \(target.rawValue)")
-        // 提前唤醒 Electron(如 Claude)的辅助功能,否则焦点要等树懒加载好几秒。
-        if let pid { FocusProbe.enableAccessibility(pid: pid) }
-        DispatchQueue.global().async { [weak self] in
-            guard let self else { return }
-            // 一直等到出现文本焦点;切到别的 App 则取消。最多等 60 秒(安全上限)。
-            let deadline = Date().addingTimeInterval(60.0)
-            var lastInfo = ""
-            while Date() < deadline {
-                if self.restoreGeneration != generation { return }   // 切走了,静默取消
-                if FocusProbe.hasTextFocus(appPid: pid) {
-                    let ok = self.tracker.setMode(target)
-                    self.onEvent?(ok ? "✓ 已恢复 \(app) 为 \(target.rawValue)"
-                                     : "✗ 恢复 \(app) 失败(有焦点但没读到小窗)")
-                    return
-                }
-                // 诊断:聚焦元素变化时记一条,帮排查为什么没被判为可输入。
-                let info = FocusProbe.focusInfo(appPid: pid)
-                if info != lastInfo { lastInfo = info; self.onEvent?("等 \(app) 文本焦点… \(info)") }
-                usleep(200_000)
-            }
-            self.onEvent?("✗ 恢复 \(app) 放弃(60 秒内一直没文本焦点)")
-        }
+        pending = nil
     }
 }
