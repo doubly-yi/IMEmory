@@ -8,7 +8,6 @@ public final class AutoSwitchController {
     private let tracker: StateTracker
     private let store: AppMemoryStore
     private var currentApp: String?
-    private var restoreGeneration = 0          // 自增以取消"过时"的待恢复(切到别的 App 时)
     private let focusObserver = FocusObserver()
     private enum Pending { case restore(IMEMode), learn }
     private var pending: Pending?
@@ -66,7 +65,6 @@ public final class AutoSwitchController {
         guard switchingEnabled else { currentApp = bundleId; return }
         guard bundleId != currentApp else { return }
         currentApp = bundleId
-        restoreGeneration += 1
         pending = nil
         pendingPid = pid
         if let pid { FocusProbe.enableAccessibility(pid: pid) }
@@ -98,17 +96,20 @@ public final class AutoSwitchController {
     private func tryCompletePending() {
         guard let p = pending, let app = currentApp else { return }
         guard FocusProbe.hasTextFocus(appPid: pendingPid) else { return }
-        switch p {
-        case .restore(let target):
-            let ok = tracker.setMode(target)
-            onEvent?(ok ? "✓ 已恢复 \(app) 为 \(target.rawValue)"
-                        : "✗ 恢复 \(app) 失败(有焦点但没读到小窗)")
-        case .learn:
-            if store.mode(for: app) == nil, let mode = tracker.current {
-                store.record(bundleId: app, mode: mode)
-                onEvent?("学习 \(app) = \(mode.rawValue)")
+        pending = nil   // 主线程先清,避免重入/重复触发
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            switch p {
+            case .restore(let target):
+                let ok = self.tracker.setMode(target)
+                self.onEvent?(ok ? "✓ 已恢复 \(app) 为 \(target.rawValue)"
+                                 : "✗ 恢复 \(app) 失败(有焦点但没读到小窗)")
+            case .learn:
+                if self.store.mode(for: app) == nil, let mode = self.tracker.current {
+                    self.store.record(bundleId: app, mode: mode)
+                    self.onEvent?("学习 \(app) = \(mode.rawValue)")
+                }
             }
         }
-        pending = nil
     }
 }

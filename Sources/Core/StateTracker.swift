@@ -21,7 +21,13 @@ public final class StateTracker {
 
     private let store: TemplateStore
     private let shiftMonitor = ShiftMonitor()
-    private var suppressShift = false   // 合成 Shift 期间为真,屏蔽 ShiftMonitor
+    // 合成 Shift 期间为真,屏蔽 ShiftMonitor。跨线程访问(后台写、主线程读)→ 加锁保证可见性。
+    private let suppressLock = NSLock()
+    private var _suppressShift = false
+    private var suppressShift: Bool {
+        get { suppressLock.lock(); defer { suppressLock.unlock() }; return _suppressShift }
+        set { suppressLock.lock(); _suppressShift = newValue; suppressLock.unlock() }
+    }
     private var imeSourceObserver: NSObjectProtocol?
     private var lastNote: String?   // 上次"为何没出状态"的原因,变化时才记日志,避免刷屏
     private var lastIMEKey: String? // 上次解析到的输入法 key,用于检测输入法被切换

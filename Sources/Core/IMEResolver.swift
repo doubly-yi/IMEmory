@@ -12,7 +12,7 @@ public enum IMEResolver {
     /// 当前键盘输入源的 id,例如 "com.bytedance.inputmethod.doubaoime.pinyin"。
     /// 注:TIS/HIToolbox 输入源 API 必须在主线程调用,否则后台线程会触发
     ///     dispatch_assert_queue 断言导致崩溃(尤其当 app 已有真实窗口时)。
-    ///     StateTracker 在后台线程轮询,故这里统一把 TIS 调用切到主线程。
+    ///     StateTracker 在后台线程采样,故这里统一把 TIS 调用切到主线程。
     public static func currentInputSourceID() -> String {
         if Thread.isMainThread { return readCurrentInputSourceID() }
         return DispatchQueue.main.sync { readCurrentInputSourceID() }
