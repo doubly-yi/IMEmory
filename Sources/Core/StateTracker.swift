@@ -121,13 +121,22 @@ public final class StateTracker {
         }
     }
 
+    /// 是否应因输入源变化而重置中/英:仅当读到非空、且与上次不同的输入源 ID 时。
+    /// 搜狗/微信切中/英会重发 kTISNotify,但输入源 ID 不变(实测,见 srcwatch)→ 不重置,
+    /// 否则菜单会先闪「?」、甚至卡在「?」(重置后没有后续采样补读时)。
+    public static func shouldResetForSourceChange(new: String, last: String?) -> Bool {
+        !new.isEmpty && new != last
+    }
+
     private func imeSourceChanged() {
+        let sid = IMEResolver.currentInputSourceID()
+        guard StateTracker.shouldResetForSourceChange(new: sid, last: lastIMEKey) else { return }
+        lastIMEKey = sid
         if current != nil || currentIMEName != nil {
             current = nil
             Log.track("输入法切换 → 中/英重置为未知(待读取)")
             NotificationCenter.default.post(name: .imemoryStateChanged, object: nil)
         }
-        lastIMEKey = nil
     }
 
     /// 冷启动锚定:不改变当前态地定出初始中/英(读不到则净零合成两次 Shift,中间读)。

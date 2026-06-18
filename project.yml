@@ -45,7 +45,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imemory.app
         PRODUCT_NAME: IMEmory
-        MARKETING_VERSION: "0.3.0"
+        MARKETING_VERSION: "0.3.1"
         CURRENT_PROJECT_VERSION: "1"
         # 用 Apple Development 证书签名(而非 ad-hoc "-"):TCC(屏幕录制/辅助功能)授权
         # 按签名身份匹配,重新构建/改名都不丢授权。团队 ID 从环境变量 DEVELOPMENT_TEAM 读取,
