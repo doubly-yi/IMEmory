@@ -39,9 +39,11 @@ public final class AutoSwitchController {
 
         // 普通 App 切换:NSWorkspace 事件 → 重新指向 FocusObserver + 处理上下文。
         monitor.onActivate = { [weak self] bundleId, name in
+            guard let self else { return }
             let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.processIdentifier
-            if let pid { self?.focusObserver.observe(pid: pid) }
-            self?.handleContext(bundleId: bundleId, name: name, pid: pid)
+            // 不监听自己(否则点菜单/开设置会触碰自身 AX,破坏菜单交互)。
+            if bundleId != self.ownBundleID, let pid { self.focusObserver.observe(pid: pid) }
+            self.handleContext(bundleId: bundleId, name: name, pid: pid)
         }
         monitor.start()
 
@@ -63,6 +65,8 @@ public final class AutoSwitchController {
     /// 进入一个新上下文(App 或覆盖层)。决定恢复/学习,并立即试着完成(可能已在输入框)。
     private func handleContext(bundleId: String, name: String, pid: pid_t?) {
         guard switchingEnabled else { currentApp = bundleId; return }
+        // 自己前台(点菜单/开设置):只记下当前是自己,绝不对自己挂监听/设增强无障碍(会让菜单点击无反应)。
+        if bundleId == ownBundleID { currentApp = bundleId; pending = nil; return }
         guard bundleId != currentApp else { return }
         currentApp = bundleId
         pending = nil
@@ -85,6 +89,8 @@ public final class AutoSwitchController {
 
     /// 焦点变化回调:属主变了 → 当作进入新上下文;属主没变 → 推进待办(等到文本焦点)。
     private func handleFocusChanged() {
+        // 自己在前台时,绝不查自己的 AX(廉价的 NSWorkspace 判断,不触发 AX 自查)。
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ownBundleID { return }
         if let owner = FocusProbe.focusedApp(), owner.bundleID != currentApp {
             handleContext(bundleId: owner.bundleID, name: owner.name, pid: owner.pid)
         } else {
