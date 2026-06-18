@@ -1,7 +1,12 @@
+import AppKit
 import Carbon
 import Foundation
 
-public struct ResolvedIME { public let def: IMEDef; public let pid: Int }
+public struct ResolvedIME {
+    public let sourceID: String     // 模板 key,如 "com.sogou.inputmethod.sogou.pinyin"
+    public let displayName: String  // "搜狗拼音"
+    public let pid: Int
+}
 
 public enum IMEResolver {
     /// 当前键盘输入源的 id,例如 "com.bytedance.inputmethod.doubaoime.pinyin"。
@@ -19,23 +24,18 @@ public enum IMEResolver {
         return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
     }
 
-    /// 通过 pgrep -f 返回命令行匹配 `pattern` 的第一个进程 pid。
-    public static func pid(matching pattern: String) -> Int? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        p.arguments = ["-f", pattern]
-        let pipe = Pipe(); p.standardOutput = pipe
-        do { try p.run(); p.waitUntilExit() } catch { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?
-            .split(separator: "\n").first.flatMap { Int($0) }
-    }
-
-    /// 将当前活跃输入法解析为其定义及运行中的 pid,若不是已知输入法或进程未运行则返回 nil。
+    /// 解析当前活跃输入法:输入源 ID → 前缀匹配运行 app 拿 pid → 本地化名。
+    /// 非可校准输入模式 / 找不到对应运行 app 时返回 nil。
     public static func resolve() -> ResolvedIME? {
-        guard let def = IMERegistry.lookup(inputSourceID: currentInputSourceID()),
-              let pid = pid(matching: def.processMatch) else { return nil }
-        return ResolvedIME(def: def, pid: pid)
+        let sid = currentInputSourceID()
+        guard !sid.isEmpty else { return nil }
+        let apps: [(bundleID: String, pid: Int, name: String)] =
+            NSWorkspace.shared.runningApplications.compactMap { app in
+                guard let bid = app.bundleIdentifier else { return nil }
+                return (bid, Int(app.processIdentifier), app.localizedName ?? bid)
+            }
+        guard let m = matchApp(sourceID: sid, apps: apps) else { return nil }
+        return ResolvedIME(sourceID: sid, displayName: currentLocalizedName() ?? m.name, pid: m.pid)
     }
 
     /// 纯函数:在运行 app 列表里找 bundleId 是 sourceID 前缀且最长的那个。便于单测。

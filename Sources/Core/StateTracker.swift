@@ -28,24 +28,24 @@ public final class StateTracker {
     @discardableResult
     public func sampleOnce() -> IMEMode? {
         guard let r = IMEResolver.resolve() else { note("无活跃的已知输入法"); return nil }
-        currentIMEName = r.def.displayName
+        currentIMEName = r.displayName
         // 输入法被切换(豆包→搜狗等):各输入法中/英相互独立,旧的 current 不再有效,
         // 重置为"未知",避免显示上一个输入法的旧状态;待这个输入法下次出小窗时再读准。
-        if lastIMEKey != r.def.key {
-            lastIMEKey = r.def.key
+        if lastIMEKey != r.sourceID {
+            lastIMEKey = r.sourceID
             if current != nil {
                 current = nil
-                Log.track("输入法切到 \(r.def.displayName) → 中/英重置为未知(待读取)")
+                Log.track("输入法切到 \(r.displayName) → 中/英重置为未知(待读取)")
             }
         }
         let appearance = Appearance.current()
-        guard let tmpl = store.load(for: r.def, appearance: appearance) else {
-            note("\(r.def.displayName) 缺[\(appearance.rawValue)]模板,需校准"); return nil
+        guard let tmpl = store.load(forSource: r.sourceID, appearance: appearance) else {
+            note("\(r.displayName) 缺[\(appearance.rawValue)]模板,需校准"); return nil
         }
-        guard let win = HUDLocator.findOnScreen(pid: r.pid, def: r.def) else {
+        guard let win = HUDLocator.findOnScreen(pid: r.pid) else {
             let d = HUDLocator.onScreenDiagnostics(pid: r.pid)
             let small = HUDLocator.allSmallWindows().joined(separator: " ")
-            note("\(r.def.displayName)[pid \(r.pid),范围\(r.def.hudSizeRange)] 未发现HUD;"
+            note("\(r.displayName)[pid \(r.pid)] 未发现HUD;"
                  + "该pid窗口[\(d.sizes.joined(separator: ","))];可见小窗[\(small.isEmpty ? "无" : small)]")
             return nil
         }
@@ -59,7 +59,7 @@ public final class StateTracker {
         case .zh: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.zh); return .zh
         case .en: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.en); return .en
         case .blank:
-            note("\(r.def.displayName) HUD 无法识别(blank,可能模板不匹配)")
+            note("\(r.displayName) HUD 无法识别(blank,可能模板不匹配)")
             if watchdog.recordBadRead() { onCaptureStuck?() }   // 截到图却分不出中/英 = 坏读
             return nil
         }
