@@ -37,4 +37,23 @@ public enum IMEResolver {
               let pid = pid(matching: def.processMatch) else { return nil }
         return ResolvedIME(def: def, pid: pid)
     }
+
+    /// 纯函数:在运行 app 列表里找 bundleId 是 sourceID 前缀且最长的那个。便于单测。
+    public static func matchApp(sourceID: String,
+                                apps: [(bundleID: String, pid: Int, name: String)]) -> (pid: Int, name: String)? {
+        let hit = apps.filter { !$0.bundleID.isEmpty && sourceID.hasPrefix($0.bundleID) }
+        guard let best = hit.max(by: { $0.bundleID.count < $1.bundleID.count }) else { return nil }
+        return (best.pid, best.name)
+    }
+
+    /// 当前输入源的本地化名(如"搜狗拼音")。TIS 须主线程调用,故同 currentInputSourceID 处理。
+    public static func currentLocalizedName() -> String? {
+        if Thread.isMainThread { return readCurrentLocalizedName() }
+        return DispatchQueue.main.sync { readCurrentLocalizedName() }
+    }
+    private static func readCurrentLocalizedName() -> String? {
+        guard let s = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let p = TISGetInputSourceProperty(s, kTISPropertyLocalizedName) else { return nil }
+        return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
+    }
 }
