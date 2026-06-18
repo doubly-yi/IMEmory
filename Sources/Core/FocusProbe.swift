@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 
 /// 用辅助功能(AX)判断当前是否有"可输入文本"的元素获得焦点。
 /// 用途:进入 App 后,等真正有文本焦点了再合成 Shift 恢复中/英,
@@ -9,6 +10,17 @@ public enum FocusProbe {
     public static func hasTextFocus(appPid: pid_t? = nil) -> Bool {
         guard let element = focusedElement(appPid: appPid) else { return false }
         return isTextLike(element)
+    }
+
+    /// 当前键盘焦点所属 App(bundleID/名称/pid),取 systemWide 焦点元素的属主进程。
+    /// 覆盖层(Spotlight 等)抢焦点时也能正确报出其属主。取不到焦点返回 nil。
+    public static func focusedApp() -> (bundleID: String, name: String, pid: pid_t)? {
+        guard let el = systemWideFocused() else { return nil }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(el, &pid) == .success, pid > 0,
+              let app = NSRunningApplication(processIdentifier: pid),
+              let bid = app.bundleIdentifier else { return nil }
+        return (bid, app.localizedName ?? bid, pid)
     }
 
     /// 判断单个 AX 元素是否"可输入文本"。
