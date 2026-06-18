@@ -20,3 +20,7 @@ Sources/App/Info.plist
 # 内部开发期的 spec/计划文档(含本机路径与内部流程引用),仅本地保留,不公开
 docs/superpowers/
 docs/manual-acceptance-checklist.md
+
+# 打包/构建产物
+build-release/
+dist/
