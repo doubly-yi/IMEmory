@@ -42,6 +42,31 @@ public struct TemplateStore {
         load(for: def, appearance: appearance) != nil
     }
 
+    /// 把输入源 ID 转成安全文件名:非字母数字一律换成下划线。
+    public static func sanitize(_ sourceID: String) -> String {
+        String(sourceID.map { ($0.isLetter || $0.isNumber) ? $0 : "_" })
+    }
+
+    private func tagSource(_ sourceID: String, _ appearance: Appearance) -> String {
+        "\(Self.sanitize(sourceID))_\(appearance.rawValue)"
+    }
+    private func urlSource(_ which: String, _ sourceID: String, _ appearance: Appearance) -> URL {
+        root.appendingPathComponent("tmpl_\(which)_\(tagSource(sourceID, appearance)).sig")
+    }
+
+    public func save(zh: [Double], en: [Double], forSource sourceID: String, appearance: Appearance) throws {
+        try encode(zh).write(to: urlSource("zh", sourceID, appearance), atomically: true, encoding: .utf8)
+        try encode(en).write(to: urlSource("en", sourceID, appearance), atomically: true, encoding: .utf8)
+    }
+    public func load(forSource sourceID: String, appearance: Appearance) -> Pair? {
+        guard let zh = decode(urlSource("zh", sourceID, appearance)),
+              let en = decode(urlSource("en", sourceID, appearance)) else { return nil }
+        return Pair(zh: zh, en: en)
+    }
+    public func has(forSource sourceID: String, appearance: Appearance) -> Bool {
+        load(forSource: sourceID, appearance: appearance) != nil
+    }
+
     private func encode(_ v: [Double]) -> String { v.map { String($0) }.joined(separator: " ") }
     private func decode(_ url: URL) -> [Double]? {
         guard let s = try? String(contentsOf: url, encoding: .utf8) else { return nil }
