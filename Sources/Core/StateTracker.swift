@@ -50,8 +50,9 @@ public final class StateTracker {
             return nil
         }
         guard let img = ScreenCapture.captureWindow(win) else {
+            // 截图返回 nil = 捕获流真失效的信号(如系统掐断屏幕录制)。这才计入看门狗。
             note("截图失败(可能缺屏幕录制权限)")
-            if watchdog.recordBadRead() { onCaptureStuck?() }   // 定位到 HUD 却截图失败 = 坏读
+            if watchdog.recordBadRead() { onCaptureStuck?() }
             return nil
         }
         let result = Classifier(zh: tmpl.zh, en: tmpl.en).classify(img)
@@ -59,8 +60,9 @@ public final class StateTracker {
         case .zh: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.zh); return .zh
         case .en: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.en); return .en
         case .blank:
+            // 截到图却分不出中/英:捕获流是好的(拿到像素了),只是内容不匹配 / HUD 正在淡出。
+            // 这是正常噪声,**不计入**"捕获失效"看门狗——否则频繁切中英会误判失效、触发自动重启(关掉用户窗口)。
             note("\(r.displayName) HUD 无法识别(blank,可能模板不匹配)")
-            if watchdog.recordBadRead() { onCaptureStuck?() }   // 截到图却分不出中/英 = 坏读
             return nil
         }
     }
