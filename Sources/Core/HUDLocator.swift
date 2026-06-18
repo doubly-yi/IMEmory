@@ -8,7 +8,10 @@ public enum HUDLocator {
     static let minHUDLayer = 1_000_000
 
     /// 通用 HUD 过滤(纯函数,便于测试):属主=pid + 近正方小窗 + 超高层级。
+    /// 连续按 Shift 时上一个状态的弹窗可能还没消失,同一 pid 会同时存在多个符合的小窗。
+    /// 窗号随创建递增,故取**窗号最大**的(最新弹出的=当前状态),避免抓到残留的旧弹窗。
     public static func find(in windows: [[String: Any]], pid: Int) -> Int? {
+        var newest: Int? = nil
         for w in windows {
             guard (w["kCGWindowOwnerPID"] as? Int) == pid,
                   let n = w["kCGWindowNumber"] as? Int,
@@ -18,10 +21,10 @@ public enum HUDLocator {
             let layer = (w["kCGWindowLayer"] as? Int) ?? 0
             if sizeRange.contains(ww), sizeRange.contains(hh),
                abs(ww - hh) <= 24, layer > minHUDLayer {
-                return n
+                if newest == nil || n > newest! { newest = n }
             }
         }
-        return nil
+        return newest
     }
 
     /// 实时版本:向窗口服务器查询当前在屏窗口,按通用判据定位。
