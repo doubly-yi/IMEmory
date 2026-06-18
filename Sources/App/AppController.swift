@@ -42,10 +42,11 @@ final class AppController {
     var isPaused: Bool { !autoSwitch.switchingEnabled }
     func setPaused(_ paused: Bool) { autoSwitch.switchingEnabled = !paused }
 
-    /// 是否还没有任何输入法被校准过(任一外观下有模板即视为已校准)。用于首次启动引导。
+    /// 是否还没有任何输入法被校准过(任一系统输入法在任一外观下有模板即视为已校准)。
     var hasNoCalibration: Bool {
-        for def in IMERegistry.all {
-            if templates.has(def, appearance: .light) || templates.has(def, appearance: .dark) {
+        for e in InputSourceEnumerator.selectableInputModes() {
+            if templates.has(forSource: e.sourceID, appearance: .light)
+                || templates.has(forSource: e.sourceID, appearance: .dark) {
                 return false
             }
         }

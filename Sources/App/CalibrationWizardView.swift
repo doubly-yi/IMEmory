@@ -4,7 +4,8 @@ import IMEmoryCore
 /// 校准向导:引导用户按 Shift 切到中/英,逐一抓取 HUD 像素并保存为模板。
 /// 一次会话采集"当前系统外观"下的中、英两套;搜狗等敏感输入法需切换系统外观后再跑一次。
 struct CalibrationWizardView: View {
-    let def: IMEDef
+    let sourceID: String
+    let displayName: String
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
 
@@ -23,14 +24,14 @@ struct CalibrationWizardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // 标题 + 一句话说明
-            Text("校准 \(def.displayName)").font(.headline)
-            Text("校准 = 教 IMEmory 认识「\(def.displayName)」的中/英长什么样。")
+            Text("校准 \(displayName)").font(.headline)
+            Text("校准 = 教 IMEmory 认识「\(displayName)」的中/英长什么样。")
                 .font(.callout).foregroundStyle(.secondary)
 
             Divider()
 
             // ① 获取焦点 + 确认输入法
-            Text("① 点下面输入框获取焦点,并确认已切到「\(def.displayName)」(用 Ctrl+空格 或地球键切换输入法):")
+            Text("① 点下面输入框获取焦点,并确认已切到「\(displayName)」(用 Ctrl+空格 或地球键切换输入法):")
                 .font(.callout)
             TextField("在这里点一下,再按 Shift 切中/英", text: $sampleText)
                 .textFieldStyle(.roundedBorder)
@@ -51,9 +52,9 @@ struct CalibrationWizardView: View {
                 }
             case .done:
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("✅ 「\(def.displayName)」的【中】【英】两张样本都抓好了:").foregroundStyle(.green)
+                    Text("✅ 「\(displayName)」的【中】【英】两张样本都抓好了:").foregroundStyle(.green)
                     HStack(spacing: 16) { thumb("中", zhPreview); thumb("英", enPreview) }
-                    Text("点【保存模板】完成校准——保存后菜单栏就能识别「\(def.displayName)」的中/英。不保存则本次作废。")
+                    Text("点【保存模板】完成校准——保存后菜单栏就能识别「\(displayName)」的中/英。不保存则本次作废。")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -101,20 +102,19 @@ struct CalibrationWizardView: View {
         }
     }
 
-    /// 抓取一帧:定位当前输入法 HUD → 截图 → 生成签名;失败给出提示。
+    /// 抓取一帧:校验当前活跃输入源==目标 → 定位 HUD → 截图 → 生成签名;失败给出提示。
     private func capture(_ store: ([Double]) -> Void) {
         let srcID = IMEResolver.currentInputSourceID()
-        let resolved = IMEResolver.resolve()
-        NSLog("IMEmory校准诊断:目标=%@ 当前输入源=%@ resolve=%@",
-              def.key, srcID.isEmpty ? "(空)" : srcID, resolved?.def.key ?? "nil")
-        guard let r = resolved, r.def.key == def.key else {
-            hint = "当前活跃输入法不是 \(def.displayName)。实际读到:\(srcID.isEmpty ? "(空)" : srcID)。"
-                 + "请点上面输入框、在框内切到 \(def.displayName) 再抓取。"
+        guard let r = IMEResolver.resolve(), r.sourceID == sourceID else {
+            hint = "当前活跃输入法不是 \(displayName)。实际读到:\(srcID.isEmpty ? "(空)" : srcID)。"
+                 + "请点上面输入框、在框内切到 \(displayName) 再抓取。"
             return
         }
-        guard let win = HUDLocator.findOnScreen(pid: r.pid, def: def),
+        guard let win = HUDLocator.findOnScreen(pid: r.pid),
               let img = ScreenCapture.captureWindow(win) else {
-            hint = "没定位到 HUD。请确认刚按过 Shift 让小窗出现,且已授予屏幕录制权限。"; return
+            hint = "没找到「\(displayName)」的中英小窗。请确认刚按过 Shift 让小窗弹出、且已授予屏幕录制权限;"
+                 + "若反复失败,可能这个输入法不弹提示窗,暂不支持。"
+            return
         }
         preview = NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
         store(Fingerprint.signature(img))
@@ -123,7 +123,7 @@ struct CalibrationWizardView: View {
     private func save() {
         guard let zh = zhSig, let en = enSig else { return }
         do {
-            try state.controller.templates.save(zh: zh, en: en, for: def, appearance: appearance)
+            try state.controller.templates.save(zh: zh, en: en, forSource: sourceID, appearance: appearance)
             dismiss()
         } catch {
             hint = "保存失败:\(error.localizedDescription)"
