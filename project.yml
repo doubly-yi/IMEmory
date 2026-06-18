@@ -1,0 +1,101 @@
+name: IMEmory
+options:
+  bundleIdPrefix: com.imemory
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    # 框架/测试/CLI 用默认 ad-hoc 签名即可,无需开发者团队——这样 `xcodebuild test`
+    # 在任何机器上都能跑(签名要求只加在 IMEmoryApp 上,见下方 target settings)。
+targets:
+  IMEmoryCore:
+    type: framework
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources/Core]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imemory.core
+        MACH_O_TYPE: staticlib
+        DEFINES_MODULE: "YES"
+        ENABLE_TESTABILITY: "YES"
+  IMEmoryApp:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources/App]
+    dependencies:
+      - target: IMEmoryCore
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleName: 输入定格
+        CFBundleDisplayName: 输入定格
+        CFBundleIconFile: AppIcon
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, zh-Hans]
+        LSHasLocalizedDisplayName: true
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imemory.app
+        PRODUCT_NAME: IMEmory
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # 用 Apple Development 证书签名(而非 ad-hoc "-"):TCC(屏幕录制/辅助功能)授权
+        # 按签名身份匹配,重新构建/改名都不丢授权。团队 ID 从环境变量 DEVELOPMENT_TEAM 读取,
+        # 不写死在仓库里——构建前 `export DEVELOPMENT_TEAM=你的TeamID`(见 README“从源码构建”)。
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+        CODE_SIGNING_REQUIRED: "YES"
+        ENABLE_HARDENED_RUNTIME: "NO"
+  IMEmoryCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Tests/CoreTests]
+    dependencies:
+      - target: IMEmoryCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imemory.coretests
+        # 测试 bundle 在代码签名时需要 Info.plist;让 Xcode 自动生成,避免“缺少 Info.plist 无法签名”报错
+        GENERATE_INFOPLIST_FILE: "YES"
+  imemory-cli:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources/CLI]
+    dependencies:
+      - target: IMEmoryCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imemory.cli
+  imemory-daemon:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources/Daemon]
+    dependencies:
+      - target: IMEmoryCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imemory.daemon
+schemes:
+  IMEmoryCore:
+    build:
+      targets:
+        IMEmoryCore: all
+    test:
+      targets:
+        - IMEmoryCoreTests
+  IMEmoryApp:
+    build:
+      targets:
+        IMEmoryApp: all
+    run:
+      config: Debug

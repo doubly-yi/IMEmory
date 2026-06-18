@@ -1,0 +1,112 @@
+import CoreGraphics
+import Foundation
+
+/// 持续监视当前输入法的 HUD 并维护中/英模式状态。
+/// 每当检测到模式变化时触发 `onChange` 回调。冷启动时 `current` 为 nil,
+/// 直到首次观测到字形后才确定初始状态。
+public final class StateTracker {
+    public private(set) var current: IMEMode?
+    /// 最近一次成功识别到的输入法显示名(如"豆包")。仅在 resolve 成功时更新,
+    /// resolve 失败(如本 app 前台、输入源是 ABC)时保留上一次的好值,供菜单显示。
+    public private(set) var currentIMEName: String?
+    public var onChange: ((IMEMode) -> Void)?
+    /// 连续多次"定位到 HUD 却读不出"→ 判定屏幕捕获流失效时回调(供 App 层自愈,如重启自身)。
+    public var onCaptureStuck: (() -> Void)?
+
+    private let store: TemplateStore
+    private var running = false
+    private let pollMicros: UInt32 = 120_000
+    private var lastNote: String?   // 上次"为何没出状态"的原因,变化时才记日志,避免刷屏
+    private var lastIMEKey: String? // 上次解析到的输入法 key,用于检测输入法被切换
+    private let watchdog = CaptureWatchdog()  // 捕获失效看门狗
+
+    public init(store: TemplateStore = .defaultStore()) {
+        self.store = store
+    }
+
+    /// 单次采样:返回本次观测到的模式,若无字形或系统未就绪则返回 nil。
+    @discardableResult
+    public func sampleOnce() -> IMEMode? {
+        guard let r = IMEResolver.resolve() else { note("无活跃的已知输入法"); return nil }
+        currentIMEName = r.def.displayName
+        // 输入法被切换(豆包→搜狗等):各输入法中/英相互独立,旧的 current 不再有效,
+        // 重置为"未知",避免显示上一个输入法的旧状态;待这个输入法下次出小窗时再读准。
+        if lastIMEKey != r.def.key {
+            lastIMEKey = r.def.key
+            if current != nil {
+                current = nil
+                Log.track("输入法切到 \(r.def.displayName) → 中/英重置为未知(待读取)")
+            }
+        }
+        let appearance = Appearance.current()
+        guard let tmpl = store.load(for: r.def, appearance: appearance) else {
+            note("\(r.def.displayName) 缺[\(appearance.rawValue)]模板,需校准"); return nil
+        }
+        guard let win = HUDLocator.findOnScreen(pid: r.pid, def: r.def) else {
+            let d = HUDLocator.onScreenDiagnostics(pid: r.pid)
+            let small = HUDLocator.allSmallWindows().joined(separator: " ")
+            note("\(r.def.displayName)[pid \(r.pid),范围\(r.def.hudSizeRange)] 未发现HUD;"
+                 + "该pid窗口[\(d.sizes.joined(separator: ","))];可见小窗[\(small.isEmpty ? "无" : small)]")
+            return nil
+        }
+        guard let img = ScreenCapture.captureWindow(win) else {
+            note("截图失败(可能缺屏幕录制权限)")
+            if watchdog.recordBadRead() { onCaptureStuck?() }   // 定位到 HUD 却截图失败 = 坏读
+            return nil
+        }
+        let result = Classifier(zh: tmpl.zh, en: tmpl.en).classify(img)
+        switch result {
+        case .zh: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.zh); return .zh
+        case .en: clearNote(); watchdog.recordGoodRead(); updateIfChanged(.en); return .en
+        case .blank:
+            note("\(r.def.displayName) HUD 无法识别(blank,可能模板不匹配)")
+            if watchdog.recordBadRead() { onCaptureStuck?() }   // 截到图却分不出中/英 = 坏读
+            return nil
+        }
+    }
+
+    /// 仅在"原因"变化时记一条日志,避免后台每 120ms 刷屏。
+    private func note(_ s: String) {
+        if lastNote != s { lastNote = s; Log.track("未出状态:\(s)") }
+    }
+    private func clearNote() { lastNote = nil }
+
+    private func updateIfChanged(_ mode: IMEMode) {
+        if current != mode {
+            current = mode; onChange?(mode)
+            Log.track("状态变化 → \(mode.rawValue)(\(currentIMEName ?? "?"))")
+        }
+    }
+
+    /// 在后台线程上运行监视循环,直到调用 `stop()` 为止。
+    public func start() {
+        guard !running else { return }
+        running = true
+        Thread.detachNewThread { [weak self] in
+            while self?.running == true {
+                _ = self?.sampleOnce()
+                usleep(self?.pollMicros ?? 120_000)
+            }
+        }
+    }
+
+    public func stop() { running = false }
+
+    /// 将输入法切换到 `target` 模式。通过 sampleOnce 读回确认,最多尝试 `maxAttempts` 次切换。
+    /// 若已处于目标模式则直接返回 true,不做任何操作。
+    @discardableResult
+    public func setMode(_ target: IMEMode, maxAttempts: Int = 2) -> Bool {
+        if current == target { return true }
+        Log.track("请求切换 → \(target.rawValue)(当前 \(current?.rawValue ?? "未知"))")
+        for i in 0..<maxAttempts {
+            Switcher.postShiftToggle()
+            usleep(220_000)                 // 等待 HUD 渲染完成
+            if sampleOnce() == target {
+                Log.track("切换成功(第 \(i + 1) 次)→ \(target.rawValue)")
+                return true
+            }
+        }
+        Log.track("切换失败,目标 \(target.rawValue),现为 \(current?.rawValue ?? "未知")")
+        return current == target
+    }
+}

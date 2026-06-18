@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode / Swift build
+IMEmory.xcodeproj/
+.build/
+build/
+DerivedData/
+*.xcuserstate
+.swiftpm/
+*.xcodeproj/xcuserdata/
+
+# XcodeGen 生成物:由 project.yml 的 info.properties 驱动,不纳入 git
+Sources/App/Info.plist
+
+# 内部开发期的 spec/计划文档(含本机路径与内部流程引用),仅本地保留,不公开
+docs/superpowers/
+docs/manual-acceptance-checklist.md
