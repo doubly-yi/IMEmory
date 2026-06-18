@@ -33,6 +33,8 @@ targets:
       properties:
         CFBundleName: 输入定格
         CFBundleDisplayName: 输入定格
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
         CFBundleDevelopmentRegion: en
         CFBundleLocalizations: [en, zh-Hans]

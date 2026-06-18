@@ -1,4 +1,8 @@
-# IMEmory（输入定格）
+<p align="center">
+  <img src="docs/logo.png" alt="输入定格" width="128">
+</p>
+
+<h1 align="center">IMEmory（输入定格）</h1>
 
 > 按 App 记住中/英输入状态，回到该 App 时自动用**输入法内 Shift** 切回——始终在输入法里切，不切到 ABC 英文键盘。
 
