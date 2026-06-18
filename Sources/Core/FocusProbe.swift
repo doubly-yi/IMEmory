@@ -37,7 +37,13 @@ public enum FocusProbe {
             kAXPopUpButtonRole as String, kAXMenuButtonRole as String,
         ]
         if nonText.contains(roleStr) { return false }
-        // 3) 其它角色:kAXValue 可写才算可编辑(排除只读对话区/网页正文)。
+        // 3) 不透明自绘视图(如 JetBrains 终端 JediTerm):无角色、零 AX 属性,却有真实键盘焦点 → 视为可输入。
+        //    标准非文本控件(按钮/滑块等)都带角色,不会落到这条。
+        var names: CFArray?
+        let attrCount = AXUIElementCopyAttributeNames(element, &names) == .success
+            ? ((names as? [String])?.count ?? 0) : 0
+        if roleStr.isEmpty && attrCount == 0 { return true }
+        // 4) 其它角色:kAXValue 可写才算可编辑(排除只读对话区/网页正文)。
         var settable: DarwinBoolean = false
         if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success {
             return settable.boolValue
