@@ -102,7 +102,8 @@ struct CalibrationWizardView: View {
         }
     }
 
-    /// 抓取一帧:校验当前活跃输入源==目标 → 定位 HUD → 截图 → 生成签名;失败给出提示。
+    /// 抓取一帧:校验当前活跃输入源==目标 → 在约 1 秒内反复定位+截图,
+    /// 直到拿到"非空白"的一帧(HUD 只显示约 1 秒且窗号每次都变,首帧常未画好/已消失)。
     private func capture(_ store: ([Double]) -> Void) {
         let srcID = IMEResolver.currentInputSourceID()
         guard let r = IMEResolver.resolve(), r.sourceID == sourceID else {
@@ -110,14 +111,22 @@ struct CalibrationWizardView: View {
                  + "请点上面输入框、在框内切到 \(displayName) 再抓取。"
             return
         }
-        guard let win = HUDLocator.findOnScreen(pid: r.pid),
-              let img = ScreenCapture.captureWindow(win) else {
-            hint = "没找到「\(displayName)」的中英小窗。请确认刚按过 Shift 让小窗弹出、且已授予屏幕录制权限;"
-                 + "若反复失败,可能这个输入法不弹提示窗,暂不支持。"
-            return
+        // 重试 ~1 秒:每 80ms 定位+截图一次,拿到非空白帧即采用。
+        for _ in 0..<12 {
+            if let win = HUDLocator.findOnScreen(pid: r.pid),
+               let img = ScreenCapture.captureWindow(win) {
+                let sig = Fingerprint.signature(img)
+                if !Fingerprint.isBlank(sig) {
+                    preview = NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
+                    hint = ""
+                    store(sig)
+                    return
+                }
+            }
+            usleep(80_000)
         }
-        preview = NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
-        store(Fingerprint.signature(img))
+        hint = "没抓到「\(displayName)」的中/英内容——小窗只显示约 1 秒。请在文本框里按一下 Shift 让小窗弹出,"
+             + "然后立刻点抓取;若反复失败,可能缺屏幕录制权限,或这个输入法不弹提示窗。"
     }
 
     private func save() {

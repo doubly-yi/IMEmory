@@ -21,6 +21,13 @@ public enum Fingerprint {
         return v
     }
 
+    /// 是否为"空白"指纹:无内容的图(全透明/纯色)经 signature 处理后偏差为 0、
+    /// 不会被归一化,故向量近似全 0(能量≈0);有字形的图归一化后能量≈1。
+    /// 用于校准时拒绝抓到的空白帧(HUD 尚未画好/已消失那一瞬)。
+    public static func isBlank(_ sig: [Double]) -> Bool {
+        sig.reduce(0) { $0 + $1 * $1 } < 0.25
+    }
+
     public static func distance(_ a: [Double], _ b: [Double]) -> Double {
         precondition(a.count == b.count)
         var s = 0.0

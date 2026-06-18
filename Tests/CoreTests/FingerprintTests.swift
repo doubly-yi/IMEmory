@@ -22,6 +22,13 @@ final class FingerprintTests: XCTestCase {
         XCTAssertGreaterThan(Fingerprint.distance(a, b), 0.2)
     }
 
+    func testIsBlankDetectsEmptyFrame() {
+        // 纯色空白帧 → 判为空白;有字形的帧 → 非空白。
+        XCTAssertTrue(Fingerprint.isBlank(Fingerprint.signature(TestImages.blank())))
+        XCTAssertFalse(Fingerprint.isBlank(Fingerprint.signature(TestImages.glyphA())))
+        XCTAssertFalse(Fingerprint.isBlank(Fingerprint.signature(TestImages.glyphB())))
+    }
+
     func testAppearanceInvariance() {
         // 相同字形、反转极性(深色背景浅色字 vs 浅色背景深色字)
         // 应产生近乎相同的特征向量。
