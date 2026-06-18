@@ -16,6 +16,7 @@ final class AppController {
         self.templates = templates
         self.tracker = tracker
         self.autoSwitch = AutoSwitchController(tracker: tracker, store: store)
+        self.autoSwitch.ownBundleID = Bundle.main.bundleIdentifier   // 不对自己学习/切换
         // 把自动切换的事件(离开存档、进入恢复、成败)接到统一日志,便于排查。
         self.autoSwitch.onEvent = { Log.sw($0) }
         // 屏幕捕获流被系统掐断(跨睡眠等)时自动重启自身恢复授权。
