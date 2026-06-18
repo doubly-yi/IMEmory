@@ -3,7 +3,7 @@
 # 说明:可执行文件名保持 ASCII 的 IMEmory(进程名/pgrep 用),
 #       但 .app bundle 文件名用中文“输入定格”,这样 Finder/访达里显示中文名。
 #       因为用 Apple Development 证书签名,TCC 权限按身份匹配、与路径无关,改名不丢授权。
-set -e
+set -eo pipefail
 cd "$(dirname "$0")/.."
 
 # 需要你自己的 Apple 开发者团队 ID 来做身份签名(TCC 权限按身份匹配,不丢授权)。
