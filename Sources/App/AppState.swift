@@ -1,19 +1,15 @@
 import SwiftUI
 import IMEmoryCore
 
-/// 把 core 的后台状态桥接到 SwiftUI:用主线程定时器轮询 tracker.current。
-/// (AutoSwitchController 已占用 tracker.onChange,故这里用轮询而非抢回调。)
+/// 把 core 的状态桥接到 SwiftUI:订阅 .imemoryStateChanged 通知刷新(取代轮询)。
 final class AppState: ObservableObject {
     @Published var mode: IMEMode?
     @Published var paused: Bool = false
     @Published var imeName: String?
     @Published var settingsTab: SettingsTab = .records
-    // 注:菜单栏图标显隐改用 @AppStorage("showMenuBarIcon"),不放在这里。
-    //     若用 @Published 绑定 MenuBarExtra(isInserted:),菜单栏每次刷新会写回该属性,
-    //     @Published 无条件 republish → 触发刷新 → 再写回,形成死循环把主线程拖垮。
 
     let controller: AppController
-    private var timer: Timer?
+    private var stateObserver: NSObjectProtocol?
 
     init(controller: AppController) {
         self.controller = controller
@@ -22,20 +18,17 @@ final class AppState: ObservableObject {
         self.imeName = controller.tracker.currentIMEName
     }
 
-    /// 每 0.2s 把后台 tracker 的当前态搬到主线程。
+    /// 订阅状态变化通知,在主线程刷新 @Published(菜单图标随之更新)。
     func startBridging() {
-        let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+        stateObserver = NotificationCenter.default.addObserver(
+            forName: .imemoryStateChanged, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            let cur = self.controller.tracker.current
-            if cur != self.mode { self.mode = cur }
-            let p = self.controller.isPaused
-            if p != self.paused { self.paused = p }
-            let nm = self.controller.tracker.currentIMEName
-            if nm != self.imeName { self.imeName = nm }
+            self.mode = self.controller.tracker.current
+            self.imeName = self.controller.tracker.currentIMEName
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
     }
+
+    deinit { if let o = stateObserver { NotificationCenter.default.removeObserver(o) } }
 
     func togglePause() {
         controller.setPaused(!controller.isPaused)

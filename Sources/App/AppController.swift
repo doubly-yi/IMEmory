@@ -23,19 +23,11 @@ final class AppController {
         tracker.onCaptureStuck = { SelfHealer.handleCaptureStuck() }
     }
 
-    /// 冷启动锚定:不改变当前态的前提下确定初始中/英(需有输入框聚焦,否则首次切换时懒锚定)。
-    func anchor() {
-        if tracker.sampleOnce() != nil { return }
-        Switcher.postShiftToggle(); usleep(240_000); _ = tracker.sampleOnce()
-        Switcher.postShiftToggle(); usleep(240_000); _ = tracker.sampleOnce()
-    }
-
-    /// 启动:先注册监听+启动 tracker(主线程),再后台锚定(避免 usleep 卡 UI)。
     func start() {
-        Log.app("启动:注册前台监听 + 后台采样")
+        Log.app("启动:注册事件监听")
         autoSwitch.start()
         DispatchQueue.global().async { [weak self] in
-            self?.anchor()
+            self?.tracker.anchorColdStart()
             Log.app("冷启动锚定完成,当前态 = \(self?.tracker.current?.rawValue ?? "未知")")
         }
     }
