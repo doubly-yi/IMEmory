@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# IDE
+.idea/
+.vscode/
+
 # Xcode / Swift build
 IMEmory.xcodeproj/
 .build/
