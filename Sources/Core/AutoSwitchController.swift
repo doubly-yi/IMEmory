@@ -79,7 +79,7 @@ public final class AutoSwitchController {
             let deadline = Date().addingTimeInterval(60.0)
             while Date() < deadline {
                 if self.restoreGeneration != generation { return }   // 切走了,静默取消
-                if FocusProbe.hasTextFocus() {
+                if FocusProbe.hasTextFocus(appPid: pid) {
                     // 等待期间用户可能已手动切换并被 onChange 记录;仅在仍无记录时才学习,避免覆盖。
                     if self.store.mode(for: bundleId) == nil, let mode = self.tracker.current {
                         self.store.record(bundleId: bundleId, mode: mode)
@@ -105,14 +105,14 @@ public final class AutoSwitchController {
             var lastInfo = ""
             while Date() < deadline {
                 if self.restoreGeneration != generation { return }   // 切走了,静默取消
-                if FocusProbe.hasTextFocus() {
+                if FocusProbe.hasTextFocus(appPid: pid) {
                     let ok = self.tracker.setMode(target)
                     self.onEvent?(ok ? "✓ 已恢复 \(app) 为 \(target.rawValue)"
                                      : "✗ 恢复 \(app) 失败(有焦点但没读到小窗)")
                     return
                 }
                 // 诊断:聚焦元素变化时记一条,帮排查为什么没被判为可输入。
-                let info = FocusProbe.focusInfo()
+                let info = FocusProbe.focusInfo(appPid: pid)
                 if info != lastInfo { lastInfo = info; self.onEvent?("等 \(app) 文本焦点… \(info)") }
                 usleep(200_000)
             }
