@@ -7,21 +7,6 @@ public enum HUDLocator {
     static let sizeRange = 12...70
     static let minHUDLayer = 1_000_000
 
-    /// 对注入的窗口信息列表进行纯过滤(便于测试)。
-    public static func find(in windows: [[String: Any]], pid: Int, def: IMEDef) -> Int? {
-        for w in windows {
-            guard (w["kCGWindowOwnerPID"] as? Int) == pid,
-                  let n = w["kCGWindowNumber"] as? Int,
-                  let b = w["kCGWindowBounds"] as? [String: Any] else { continue }
-            let ww = Int((b["Width"] as? Double) ?? 0)
-            let hh = Int((b["Height"] as? Double) ?? 0)
-            if def.hudSizeRange.contains(ww), def.hudSizeRange.contains(hh), abs(ww - hh) <= 24 {
-                return n
-            }
-        }
-        return nil
-    }
-
     /// 通用 HUD 过滤(纯函数,便于测试):属主=pid + 近正方小窗 + 超高层级。
     public static func find(in windows: [[String: Any]], pid: Int) -> Int? {
         for w in windows {
@@ -37,21 +22,6 @@ public enum HUDLocator {
             }
         }
         return nil
-    }
-
-    /// 实时版本:向窗口服务器查询当前屏幕上的窗口。
-    public static func findOnScreen(pid: Int, def: IMEDef) -> Int? {
-        let arr = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
-                   as? [[String: Any]]) ?? []
-        // CFDictionary 的 key 以 CFString 传入,此处统一转换为 String 类型的 key。
-        let normalized = arr.map { dict -> [String: Any] in
-            var out: [String: Any] = [:]
-            if let n = dict[kCGWindowNumber as String] { out["kCGWindowNumber"] = n }
-            if let p = dict[kCGWindowOwnerPID as String] { out["kCGWindowOwnerPID"] = p }
-            if let b = dict[kCGWindowBounds as String] as? [String: Any] { out["kCGWindowBounds"] = b }
-            return out
-        }
-        return find(in: normalized, pid: pid, def: def)
     }
 
     /// 实时版本:向窗口服务器查询当前在屏窗口,按通用判据定位。

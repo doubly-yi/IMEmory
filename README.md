@@ -19,7 +19,7 @@
 
 ## 下载使用
 
-不想自己编译的话，到 [Releases](https://github.com/doubly-yi/IMEmory/releases) 下载打包好的版本。
+下载请前往前往[Releases](https://github.com/doubly-yi/IMEmory/releases) 
 
 ## 环境要求
 
@@ -34,8 +34,6 @@ brew install xcodegen                 # 仅首次
 export DEVELOPMENT_TEAM=你的TeamID     # 在 developer.apple.com 账号 Membership 页可查（10 位字符）
 ./scripts/build-and-install.sh        # 构建并安装到 /Applications/输入定格.app
 ```
-
-> 用身份证书签名 + 装到固定路径，是为了让系统隐私授权（屏幕录制 / 辅助功能）保持稳定，不必每次重建都重新授权。
 
 装好后到**系统设置 › 隐私与安全性**里开两个权限：
 

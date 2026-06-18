@@ -19,29 +19,6 @@ public struct TemplateStore {
         return TemplateStore(root: base)
     }
 
-    private func tag(_ def: IMEDef, _ appearance: Appearance) -> String {
-        // 所有输入法统一按外观(浅/深)分别存模板。
-        "\(def.key)_\(appearance.rawValue)"
-    }
-    private func url(_ which: String, _ def: IMEDef, _ appearance: Appearance) -> URL {
-        root.appendingPathComponent("tmpl_\(which)_\(tag(def, appearance)).sig")
-    }
-
-    public func save(zh: [Double], en: [Double], for def: IMEDef, appearance: Appearance) throws {
-        try encode(zh).write(to: url("zh", def, appearance), atomically: true, encoding: .utf8)
-        try encode(en).write(to: url("en", def, appearance), atomically: true, encoding: .utf8)
-    }
-
-    public func load(for def: IMEDef, appearance: Appearance) -> Pair? {
-        guard let zh = decode(url("zh", def, appearance)),
-              let en = decode(url("en", def, appearance)) else { return nil }
-        return Pair(zh: zh, en: en)
-    }
-
-    public func has(_ def: IMEDef, appearance: Appearance) -> Bool {
-        load(for: def, appearance: appearance) != nil
-    }
-
     /// 把输入源 ID 转成安全文件名:非字母数字一律换成下划线。
     public static func sanitize(_ sourceID: String) -> String {
         String(sourceID.map { ($0.isLetter || $0.isNumber) ? $0 : "_" })
