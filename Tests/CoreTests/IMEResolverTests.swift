@@ -22,4 +22,10 @@ final class IMEResolverTests: XCTestCase {
         let apps: [(bundleID: String, pid: Int, name: String)] = [("", 5, "无包名")]
         XCTAssertNil(IMEResolver.matchApp(sourceID: "com.x.y", apps: apps))
     }
+
+    func testEnumeratorDoesNotCrashAndReturnsArray() {
+        // 系统相关,内容因机器而异;此处只验证可调用且不崩溃、返回的条目 sourceID 非空。
+        let modes = InputSourceEnumerator.selectableInputModes()
+        for m in modes { XCTAssertFalse(m.sourceID.isEmpty) }
+    }
 }
