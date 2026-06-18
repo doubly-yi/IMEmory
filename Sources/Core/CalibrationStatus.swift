@@ -4,4 +4,8 @@ public enum CalibrationStatus {
     public static func missing(store: TemplateStore, def: IMEDef) -> [Appearance] {
         [.light, .dark].filter { !store.has(def, appearance: $0) }
     }
+
+    public static func missing(store: TemplateStore, sourceID: String) -> [Appearance] {
+        [.light, .dark].filter { !store.has(forSource: sourceID, appearance: $0) }
+    }
 }
