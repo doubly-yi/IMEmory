@@ -3,6 +3,10 @@ import Foundation
 
 /// 在屏幕上的窗口列表中定位输入法的中/英 HUD 窗口。
 public enum HUDLocator {
+    /// 通用尺寸/层级判据(取代每个输入法的 hudSizeRange 魔数)。
+    static let sizeRange = 12...70
+    static let minHUDLayer = 1_000_000
+
     /// 对注入的窗口信息列表进行纯过滤(便于测试)。
     public static func find(in windows: [[String: Any]], pid: Int, def: IMEDef) -> Int? {
         for w in windows {
@@ -12,6 +16,23 @@ public enum HUDLocator {
             let ww = Int((b["Width"] as? Double) ?? 0)
             let hh = Int((b["Height"] as? Double) ?? 0)
             if def.hudSizeRange.contains(ww), def.hudSizeRange.contains(hh), abs(ww - hh) <= 24 {
+                return n
+            }
+        }
+        return nil
+    }
+
+    /// 通用 HUD 过滤(纯函数,便于测试):属主=pid + 近正方小窗 + 超高层级。
+    public static func find(in windows: [[String: Any]], pid: Int) -> Int? {
+        for w in windows {
+            guard (w["kCGWindowOwnerPID"] as? Int) == pid,
+                  let n = w["kCGWindowNumber"] as? Int,
+                  let b = w["kCGWindowBounds"] as? [String: Any] else { continue }
+            let ww = Int((b["Width"] as? Double) ?? 0)
+            let hh = Int((b["Height"] as? Double) ?? 0)
+            let layer = (w["kCGWindowLayer"] as? Int) ?? 0
+            if sizeRange.contains(ww), sizeRange.contains(hh),
+               abs(ww - hh) <= 24, layer > minHUDLayer {
                 return n
             }
         }
@@ -31,6 +52,21 @@ public enum HUDLocator {
             return out
         }
         return find(in: normalized, pid: pid, def: def)
+    }
+
+    /// 实时版本:向窗口服务器查询当前在屏窗口,按通用判据定位。
+    public static func findOnScreen(pid: Int) -> Int? {
+        let arr = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+                   as? [[String: Any]]) ?? []
+        let normalized = arr.map { dict -> [String: Any] in
+            var out: [String: Any] = [:]
+            if let n = dict[kCGWindowNumber as String] { out["kCGWindowNumber"] = n }
+            if let p = dict[kCGWindowOwnerPID as String] { out["kCGWindowOwnerPID"] = p }
+            if let l = dict[kCGWindowLayer as String] { out["kCGWindowLayer"] = l }
+            if let b = dict[kCGWindowBounds as String] as? [String: Any] { out["kCGWindowBounds"] = b }
+            return out
+        }
+        return find(in: normalized, pid: pid)
     }
 
     /// 诊断信息:当前可枚举的在屏窗口总数、属于某 pid 的窗口数及其尺寸。
